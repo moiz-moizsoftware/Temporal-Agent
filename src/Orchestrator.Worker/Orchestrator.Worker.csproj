@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <ItemGroup>
+    <PackageReference Include="Anthropic" Version="13.1.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
+    <PackageReference Include="Temporalio.Extensions.Hosting" Version="1.21.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Orchestrator.Activities\Orchestrator.Activities.csproj" />
+    <ProjectReference Include="..\Orchestrator.Workflows\Orchestrator.Workflows.csproj" />
+  </ItemGroup>
+
+</Project>
