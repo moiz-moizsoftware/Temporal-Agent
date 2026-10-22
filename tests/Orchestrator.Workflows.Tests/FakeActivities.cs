@@ -1,0 +1,92 @@
+using Orchestrator.Contracts;
+using Temporalio.Activities;
+
+namespace Orchestrator.Workflows.Tests;
+
+/// <summary>
+/// In-memory stand-ins registered under the real activity names. Verify results are scripted per story;
+/// once a story's script is exhausted it passes.
+/// </summary>
+public class FakeActivities
+{
+    private readonly Dictionary<string, Queue<VerifyResult>> verifyScripts = [];
+
+    public FakeActivities(params StoryRef[] stories) => Stories = stories;
+
+    public IReadOnlyList<StoryRef> Stories { get; }
+
+    public List<string> Calls { get; } = [];
+
+    public List<WriteLoopFilesInput> LoopFileWrites { get; } = [];
+
+    public FakeActivities ScriptVerify(string storyId, params VerifyResult[] results)
+    {
+        verifyScripts[storyId] = new Queue<VerifyResult>(results);
+        return this;
+    }
+
+    public static VerifyResult Fail(string signature) =>
+        new(Passed: false, BuildSucceeded: true, StoryTestsPassed: false, FullSuitePassed: false, [], signature, "raw.log");
+
+    public IEnumerable<string> CallsTo(string activityName) =>
+        Calls.Where(c => c.StartsWith(activityName + ":", StringComparison.Ordinal));
+
+    [Activity(ActivityNames.PrepareWorkspace)]
+    public PrepareWorkspaceResult PrepareWorkspace(PrepareWorkspaceInput input)
+    {
+        Record(ActivityNames.PrepareWorkspace, input.FeatureId);
+        return new PrepareWorkspaceResult($"/work/{input.WorkflowId}", $"ralph/{input.FeatureId}");
+    }
+
+    [Activity(ActivityNames.LoadStories)]
+    public LoadStoriesResult LoadStories(LoadStoriesInput input)
+    {
+        Record(ActivityNames.LoadStories, input.FeatureId);
+        return new LoadStoriesResult(Stories);
+    }
+
+    [Activity(ActivityNames.WriteLoopFiles)]
+    public void WriteLoopFiles(WriteLoopFilesInput input)
+    {
+        Record(ActivityNames.WriteLoopFiles, $"{input.StoryId}:{input.Iteration}");
+        LoopFileWrites.Add(input);
+    }
+
+    [Activity(ActivityNames.RunAgent)]
+    public RunAgentResult RunAgent(RunAgentInput input)
+    {
+        Record(ActivityNames.RunAgent, $"{input.StoryId}:{input.Iteration}");
+        return new RunAgentResult(0, Turns: 5, CostUsd: 0.1m, InputTokens: 100, OutputTokens: 50, TimeSpan.FromSeconds(30), "agent.json");
+    }
+
+    [Activity(ActivityNames.Verify)]
+    public VerifyResult Verify(VerifyInput input)
+    {
+        Record(ActivityNames.Verify, $"{input.StoryId}:{input.Iteration}");
+        return verifyScripts.TryGetValue(input.StoryId, out var script) && script.Count > 0
+            ? script.Dequeue()
+            : new VerifyResult(true, true, true, true, [], null, "raw.log");
+    }
+
+    [Activity(ActivityNames.CommitStory)]
+    public CommitStoryResult CommitStory(CommitStoryInput input)
+    {
+        Record(ActivityNames.CommitStory, input.StoryId);
+        return new CommitStoryResult($"sha-{input.StoryId}");
+    }
+
+    [Activity(ActivityNames.SummarizeFailure)]
+    public SummarizeFailureResult SummarizeFailure(SummarizeFailureInput input)
+    {
+        Record(ActivityNames.SummarizeFailure, $"{input.StoryId}:{input.Iteration}");
+        return new SummarizeFailureResult($"last_failure_{input.Iteration}.md", UsedFallback: false);
+    }
+
+    private void Record(string activity, string detail)
+    {
+        lock (Calls)
+        {
+            Calls.Add($"{activity}:{detail}");
+        }
+    }
+}
