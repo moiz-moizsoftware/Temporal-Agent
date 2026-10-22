@@ -1,9 +1,12 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Orchestrator.Activities/Orchestrator.Activities.csproj" />
     <Project Path="src/Orchestrator.Contracts/Orchestrator.Contracts.csproj" />
+    <Project Path="src/Orchestrator.Worker/Orchestrator.Worker.csproj" />
     <Project Path="src/Orchestrator.Workflows/Orchestrator.Workflows.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Orchestrator.Activities.Tests/Orchestrator.Activities.Tests.csproj" />
     <Project Path="tests/Orchestrator.Workflows.Tests/Orchestrator.Workflows.Tests.csproj" />
   </Folder>
 </Solution>

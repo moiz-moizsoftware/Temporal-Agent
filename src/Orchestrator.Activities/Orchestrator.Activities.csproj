@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="CliWrap" Version="3.10.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
+    <PackageReference Include="Temporalio" Version="1.21.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Templates\PROMPT.template.md" LogicalName="PROMPT.template.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orchestrator.Activities.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Orchestrator.Contracts\Orchestrator.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
