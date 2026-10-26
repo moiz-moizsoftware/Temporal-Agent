@@ -173,3 +173,33 @@ temporal workflow terminate --workflow-id feature-f1 --reason "abandoned"
 ```
 
 The worktree stays on disk. To remove it, run `git -C <repoPath> worktree remove <WorkRoot>\feature-f1`.
+
+## 10. Observability (Langfuse)
+
+The worker can send traces to [Langfuse](https://langfuse.com) over OpenTelemetry. It is off unless both keys are set:
+
+```powershell
+$env:Langfuse__PublicKey = "pk-lf-..."
+$env:LANGFUSE_SECRET_KEY = "sk-lf-..."       # environment only, never in config
+$env:Langfuse__BaseUrl   = "https://cloud.langfuse.com"   # or https://us.cloud.langfuse.com, or your self-hosted URL
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `Langfuse:BaseUrl` | `https://cloud.langfuse.com` | Langfuse instance. |
+| `Langfuse:PublicKey` | *(empty: tracing off)* | Project public key. |
+| `Langfuse:CaptureContent` | `true` | Also send the summarizer's prompt and response, and the agent's final result text. Set `false` to send metrics only. |
+| `Langfuse:Environment` | `development` | Langfuse environment name (lowercase). |
+
+What you get:
+
+- **One trace per workflow run**, with the workflow id as the Langfuse session. Each activity is a span tagged with `featureId`, `storyId` and `iteration`.
+- **A `claude-code` generation per `RunAgent`**: model, input/output tokens, turns, exit code, and the cost reported by the CLI.
+- **A generation per failure summary**, from the summarizer's `IChatClient`.
+- **Scores:** `verify_passed` on each Verify span, and `feature_outcome`, `iterations`, `stories_passed_ratio` and `escalation_reason` on the trace when the workflow finishes.
+
+Raw logs, `PROMPT.md` and the spec are never sent. With `CaptureContent` on, the summarizer prompt includes the tail of the build/test log, so it can contain code from the target repo.
+
+Useful dashboard widgets: total cost grouped by `featureId` metadata, `verify_passed` average, `iterations` per feature, and a count of `escalation_reason` values.
+
+Telemetry never fails a run: if Langfuse is down, spans are dropped and score errors are only logged.
