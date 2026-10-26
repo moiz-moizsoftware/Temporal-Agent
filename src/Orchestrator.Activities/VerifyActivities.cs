@@ -9,7 +9,7 @@ public class VerifyActivities
 {
     /// <summary>
     /// A story passes only if: no locked file was touched, the build succeeds, every story test exists and
-    /// passes, and the full suite passes. Build and test output go to one raw log outside the worktree.
+    /// passes, and the full suite passes apart from the tests of stories not reached yet. Build and test output go to one raw log outside the worktree.
     /// </summary>
     [Activity(ActivityNames.Verify)]
     public async Task<VerifyResult> VerifyAsync(VerifyInput input)
@@ -21,6 +21,7 @@ public class VerifyActivities
         ResetOutputs(log, trxDir); // a retried attempt starts clean
 
         var locked = await FindLockedPathViolationsAsync(paths, ct);
+        var newPackages = await PackageChanges.FindAddedAsync(paths.Worktree, ct);
 
         var buildExit = await ProcessRunner.RunToFileAsync(
             "dotnet", ["build", "--nologo"], paths.Worktree, log, stdErrPath: null, ct);
@@ -38,9 +39,9 @@ public class VerifyActivities
         }
 
         var missing = input.TestIds.Where(id => !results.ContainsKey(id)).ToList();
-        var failed = results.Where(r => !r.Value).Select(r => r.Key).ToList();
+        var failed = FailedOutsidePending(results, input.PendingTestIds);
         var storyTestsPassed = buildSucceeded && missing.Count == 0 && input.TestIds.All(id => results[id]);
-        var fullSuitePassed = buildSucceeded && testExit == 0 && results.Count > 0 && failed.Count == 0;
+        var fullSuitePassed = buildSucceeded && IsFullSuitePassed(results, input.PendingTestIds, testExit);
         var passed = locked.Count == 0 && buildSucceeded && storyTestsPassed && fullSuitePassed;
 
         return new VerifyResult(
@@ -50,8 +51,23 @@ public class VerifyActivities
             fullSuitePassed,
             locked,
             passed ? null : FailureSignature.From(locked, buildSucceeded, missing, failed, fullSuitePassed),
-            log);
+            log,
+            newPackages);
     }
+
+    /// <summary>Failed tests, ignoring those of stories not reached yet.</summary>
+    internal static List<string> FailedOutsidePending(IReadOnlyDictionary<string, bool> results, IReadOnlyList<string> pendingTestIds) =>
+        results.Where(r => !r.Value && !pendingTestIds.Contains(r.Key)).Select(r => r.Key).ToList();
+
+    /// <summary>
+    /// Every test outside the pending set passed. A non-zero exit is accepted only when a pending test explains it;
+    /// otherwise it means something the TRX does not show (a crash, a test project that did not run).
+    /// </summary>
+    internal static bool IsFullSuitePassed(
+        IReadOnlyDictionary<string, bool> results, IReadOnlyList<string> pendingTestIds, int testExit) =>
+        results.Count > 0
+        && FailedOutsidePending(results, pendingTestIds).Count == 0
+        && (testExit == 0 || results.Any(r => !r.Value && pendingTestIds.Contains(r.Key)));
 
     /// <summary>
     /// Locked = anything under specs/{featureId} (vs HEAD, including new files), plus the orchestrator-owned

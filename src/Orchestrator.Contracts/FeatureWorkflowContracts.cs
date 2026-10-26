@@ -28,6 +28,12 @@ public record EscalationInfo(
     string? LastFailureSummaryPath,
     string? RawLogPath);
 
+/// <summary>A passing iteration that added NuGet packages, waiting for a human decision before it is committed.</summary>
+public record PackageApprovalRequest(string StoryId, int Iteration, IReadOnlyList<string> Packages);
+
+/// <summary>Payload of the ApprovePackages signal. A rejection comment is passed to the agent's next attempt.</summary>
+public record PackageDecision(bool Approved, string? Comment = null);
+
 public record FeatureWorkflowResult(
     FeatureOutcome Outcome,
     IReadOnlyList<StoryStatus> Stories,

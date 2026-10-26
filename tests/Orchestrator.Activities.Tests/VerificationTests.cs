@@ -66,6 +66,47 @@ public class VerificationTests
             FailureSignature.From([], true, [], Enumerable.Range(0, 50).Select(i => $"Some.Long.Test{i:00}").ToList(), false)!.Length);
 
     [Fact]
+    public void FullSuite_IgnoresFailingPendingTests()
+    {
+        var results = new Dictionary<string, bool> { ["A.S1"] = true, ["A.S2"] = false };
+
+        Assert.True(VerifyActivities.IsFullSuitePassed(results, ["A.S2"], testExit: 1));
+        Assert.Empty(VerifyActivities.FailedOutsidePending(results, ["A.S2"]));
+    }
+
+    [Fact]
+    public void FullSuite_FailsOnNonPendingFailure()
+    {
+        var results = new Dictionary<string, bool> { ["A.S1"] = true, ["A.Old"] = false, ["A.S2"] = false };
+
+        Assert.False(VerifyActivities.IsFullSuitePassed(results, ["A.S2"], testExit: 1));
+        Assert.Equal(["A.Old"], VerifyActivities.FailedOutsidePending(results, ["A.S2"]));
+    }
+
+    [Fact]
+    public void FullSuite_FailsOnUnexplainedNonZeroExit() =>
+        Assert.False(VerifyActivities.IsFullSuitePassed(new Dictionary<string, bool> { ["A.S1"] = true }, ["A.S2"], testExit: 1));
+
+    [Fact]
+    public void Packages_ParsesReferencesAndCentralVersions() =>
+        Assert.Equal(
+            ["Polly@8.5.0", "Serilog@4.0.0", "Dapper"],
+            PackageChanges.Parse(
+                """
+                <Project>
+                  <ItemGroup>
+                    <PackageReference Include="Polly" Version="8.5.0" />
+                    <PackageVersion Include="Serilog"><Version>4.0.0</Version></PackageVersion>
+                    <PackageReference Include="Dapper" />
+                    <ProjectReference Include="..\Other.csproj" />
+                  </ItemGroup>
+                </Project>
+                """));
+
+    [Fact]
+    public void Packages_InvalidXmlGivesNone() => Assert.Empty(PackageChanges.Parse("<Project>"));
+
+    [Fact]
     public void Signature_NullWhenEverythingPasses() =>
         Assert.Null(FailureSignature.From([], true, [], [], fullSuitePassed: true));
 }

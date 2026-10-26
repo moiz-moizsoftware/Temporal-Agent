@@ -19,6 +19,10 @@ public class FakeActivities
 
     public List<WriteLoopFilesInput> LoopFileWrites { get; } = [];
 
+    public List<VerifyInput> VerifyInputs { get; } = [];
+
+    public List<SummarizeFailureInput> SummarizeInputs { get; } = [];
+
     public FakeActivities ScriptVerify(string storyId, params VerifyResult[] results)
     {
         verifyScripts[storyId] = new Queue<VerifyResult>(results);
@@ -26,7 +30,10 @@ public class FakeActivities
     }
 
     public static VerifyResult Fail(string signature) =>
-        new(Passed: false, BuildSucceeded: true, StoryTestsPassed: false, FullSuitePassed: false, [], signature, "raw.log");
+        new(Passed: false, BuildSucceeded: true, StoryTestsPassed: false, FullSuitePassed: false, [], signature, "raw.log", []);
+
+    public static VerifyResult PassWithPackages(params string[] packages) =>
+        new(Passed: true, BuildSucceeded: true, StoryTestsPassed: true, FullSuitePassed: true, [], null, "raw.log", packages);
 
     public IEnumerable<string> CallsTo(string activityName) =>
         Calls.Where(c => c.StartsWith(activityName + ":", StringComparison.Ordinal));
@@ -63,9 +70,10 @@ public class FakeActivities
     public VerifyResult Verify(VerifyInput input)
     {
         Record(ActivityNames.Verify, $"{input.StoryId}:{input.Iteration}");
+        VerifyInputs.Add(input);
         return verifyScripts.TryGetValue(input.StoryId, out var script) && script.Count > 0
             ? script.Dequeue()
-            : new VerifyResult(true, true, true, true, [], null, "raw.log");
+            : new VerifyResult(true, true, true, true, [], null, "raw.log", []);
     }
 
     [Activity(ActivityNames.CommitStory)]
@@ -79,6 +87,7 @@ public class FakeActivities
     public SummarizeFailureResult SummarizeFailure(SummarizeFailureInput input)
     {
         Record(ActivityNames.SummarizeFailure, $"{input.StoryId}:{input.Iteration}");
+        SummarizeInputs.Add(input);
         return new SummarizeFailureResult($"last_failure_{input.Iteration}.md", UsedFallback: false);
     }
 

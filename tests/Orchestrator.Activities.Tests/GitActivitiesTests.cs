@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Orchestrator.Activities.Infrastructure;
+using Orchestrator.Activities.Verification;
 using Orchestrator.Contracts;
 using Temporalio.Exceptions;
 using Temporalio.Testing;
@@ -107,6 +108,24 @@ public sealed class GitActivitiesTests : IDisposable
         File.WriteAllText(Path.Combine(worktree, "Greeter.cs"), "allowed");
 
         Assert.Equal([".ralph/f1/status.json", "specs/f1/spec.md"], await LockedViolationsAsync(worktree));
+    }
+
+    [Fact]
+    public async Task Packages_DetectsAddedAndBumpedSinceHead()
+    {
+        var worktree = await PrepareAsync();
+        var csproj = Path.Combine(worktree, "App.csproj");
+        File.WriteAllText(csproj, """<Project><ItemGroup><PackageReference Include="Polly" Version="8.0.0" /></ItemGroup></Project>""");
+        TempGitRepo.Git(worktree, "add", "-A");
+        TempGitRepo.Git(worktree, "-c", "user.name=T", "-c", "user.email=t@localhost", "commit", "-q", "-m", "base");
+
+        File.WriteAllText(csproj, """<Project><ItemGroup><PackageReference Include="Polly" Version="8.5.0" /><PackageReference Include="Dapper" Version="2.1.0" /></ItemGroup></Project>""");
+        Directory.CreateDirectory(Path.Combine(worktree, "src", "New"));
+        File.WriteAllText(Path.Combine(worktree, "src", "New", "New.csproj"), """<Project><ItemGroup><PackageReference Include="Serilog" Version="4.0.0" /></ItemGroup></Project>""");
+
+        Assert.Equal(
+            ["Dapper@2.1.0", "Polly@8.5.0", "Serilog@4.0.0"],
+            await PackageChanges.FindAddedAsync(worktree, CancellationToken.None));
     }
 
     private Task<IReadOnlyList<string>> LockedViolationsAsync(string worktree) =>

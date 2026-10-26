@@ -20,9 +20,12 @@ public sealed class OrchestratorOptions
 
     public int? MaxTurns { get; set; } = 50;
 
-    /// <summary>Comma-separated, passed as a single --allowedTools value.</summary>
+    /// <summary>
+    /// Comma-separated, passed as a single --allowedTools value. Added packages are gated by human approval in
+    /// the workflow, not here.
+    /// </summary>
     public string AllowedTools { get; set; } =
-        "Read,Edit,Write,Glob,Grep,Bash(dotnet build:*),Bash(dotnet test:*)";
+        "Read,Edit,Write,Glob,Grep,Bash(dotnet build:*),Bash(dotnet test:*),Bash(dotnet add package:*)";
 
     public string SummarizerModel { get; set; } = "claude-haiku-5-5";
 

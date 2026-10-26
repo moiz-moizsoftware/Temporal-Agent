@@ -25,6 +25,17 @@ public class FeatureWorkflowTests(WorkflowEnvironmentFixture fixture) : IClassFi
     }
 
     [Fact]
+    public async Task Verify_TreatsLaterStoriesTestsAsPending()
+    {
+        var fake = new FakeActivities(S1, S2);
+
+        await RunAsync(fake);
+
+        Assert.Equal(["Hello.Tests.S2Tests.Works"], fake.VerifyInputs[0].PendingTestIds);
+        Assert.Empty(fake.VerifyInputs[1].PendingTestIds);
+    }
+
+    [Fact]
     public async Task RetryThenPass_SummarizesFailureThenCommits()
     {
         var fake = new FakeActivities(S1).ScriptVerify("S1", FakeActivities.Fail("sig-a"));
@@ -73,7 +84,7 @@ public class FeatureWorkflowTests(WorkflowEnvironmentFixture fixture) : IClassFi
     {
         var violation = new VerifyResult(
             Passed: false, BuildSucceeded: true, StoryTestsPassed: true, FullSuitePassed: true,
-            ["specs/f1/spec.md"], "locked:specs/f1/spec.md", "raw.log");
+            ["specs/f1/spec.md"], "locked:specs/f1/spec.md", "raw.log", []);
         var fake = new FakeActivities(S1).ScriptVerify("S1", violation);
 
         var result = await RunAsync(fake);
@@ -100,8 +111,62 @@ public class FeatureWorkflowTests(WorkflowEnvironmentFixture fixture) : IClassFi
         Assert.Equal(2, fake.CallsTo(ActivityNames.RunAgent).Count());
     }
 
+    [Fact]
+    public async Task NewPackages_ApprovedAreCommitted()
+    {
+        var fake = new FakeActivities(S1).ScriptVerify("S1", FakeActivities.PassWithPackages("Polly@8.5.0"));
+        PackageApprovalRequest? seen = null;
+
+        var result = await RunAsync(fake, decide: async handle =>
+        {
+            seen = await WaitForApprovalAsync(handle);
+            await handle.SignalAsync(wf => wf.ApprovePackagesAsync(new PackageDecision(Approved: true)));
+        });
+
+        Assert.Equal(("S1", 1), (seen!.StoryId, seen.Iteration));
+        Assert.Equal(["Polly@8.5.0"], seen.Packages);
+        Assert.Equal(FeatureOutcome.Completed, result.Outcome);
+        Assert.Equal(["CommitStory:S1"], fake.CallsTo(ActivityNames.CommitStory));
+        Assert.Empty(fake.CallsTo(ActivityNames.SummarizeFailure));
+    }
+
+    [Fact]
+    public async Task NewPackages_RejectedTakeFailurePathWithFeedback()
+    {
+        var fake = new FakeActivities(S1).ScriptVerify("S1", FakeActivities.PassWithPackages("Polly@8.5.0"));
+
+        var result = await RunAsync(fake, decide: async handle =>
+        {
+            await WaitForApprovalAsync(handle);
+            await handle.SignalAsync(wf => wf.ApprovePackagesAsync(new PackageDecision(false, "Use a simple retry loop.")));
+        });
+
+        Assert.Equal(["SummarizeFailure:S1:1"], fake.CallsTo(ActivityNames.SummarizeFailure));
+        Assert.Contains("Use a simple retry loop.", fake.SummarizeInputs.Single().ReviewerFeedback);
+        Assert.Equal(new StoryStatus("S1", Passes: true, Attempts: 1, "packages-rejected:Polly@8.5.0"), result.Stories.Single());
+        Assert.Equal(["CommitStory:S1"], fake.CallsTo(ActivityNames.CommitStory)); // second iteration had no new packages
+    }
+
+    private static async Task<PackageApprovalRequest> WaitForApprovalAsync(WorkflowHandle<FeatureWorkflow> handle)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            if (await handle.QueryAsync(wf => wf.PendingPackageApproval) is { } pending)
+            {
+                return pending;
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException("The workflow never asked for package approval.");
+    }
+
     private async Task<FeatureWorkflowResult> RunAsync(
-        FakeActivities fake, int maxAttemptsPerStory = 3, int maxTotalIterations = 20)
+        FakeActivities fake,
+        int maxAttemptsPerStory = 3,
+        int maxTotalIterations = 20,
+        Func<WorkflowHandle<FeatureWorkflow>, Task>? decide = null)
     {
         var taskQueue = $"test-{Guid.NewGuid()}";
         var input = new FeatureWorkflowInput(
@@ -111,8 +176,17 @@ public class FeatureWorkflowTests(WorkflowEnvironmentFixture fixture) : IClassFi
             fixture.Env.Client,
             new TemporalWorkerOptions(taskQueue).AddWorkflow<FeatureWorkflow>().AddAllActivities(fake));
 
-        return await worker.ExecuteAsync(() => fixture.Env.Client.ExecuteWorkflowAsync(
-            (FeatureWorkflow wf) => wf.RunAsync(input),
-            new WorkflowOptions($"feature-f1-{Guid.NewGuid()}", taskQueue)));
+        return await worker.ExecuteAsync(async () =>
+        {
+            var handle = await fixture.Env.Client.StartWorkflowAsync(
+                (FeatureWorkflow wf) => wf.RunAsync(input),
+                new WorkflowOptions($"feature-f1-{Guid.NewGuid()}", taskQueue));
+            if (decide is not null)
+            {
+                await decide(handle);
+            }
+
+            return await handle.GetResultAsync();
+        });
     }
 }

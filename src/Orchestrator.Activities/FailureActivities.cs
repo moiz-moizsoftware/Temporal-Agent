@@ -22,31 +22,17 @@ public class FailureActivities(IChatClient chatClient, IOptions<OrchestratorOpti
 
     /// <summary>
     /// Writes .ralph/{featureId}/last_failure.md from an LLM summary of the raw log tail. If the summarizer
-    /// fails for any reason, the raw tail is written instead (UsedFallback = true). Safe to retry: overwrites.
+    /// fails for any reason, the raw tail is written instead (UsedFallback = true). Reviewer feedback, when given,
+    /// is written as-is: the build passed, so the log has nothing to summarize. Safe to retry: overwrites.
     /// </summary>
     [Activity(ActivityNames.SummarizeFailure)]
     public async Task<SummarizeFailureResult> SummarizeFailureAsync(SummarizeFailureInput input)
     {
         var ct = ActivityExecutionContext.Current.CancellationToken;
         var paths = new RalphPaths(input.WorktreePath, input.FeatureId);
-        var tail = ReadTail(input.RawLogPath, options.Value.RawLogTailBytes);
-
-        string body;
-        var usedFallback = false;
-        try
-        {
-            var response = await chatClient.GetResponseAsync(
-                [new ChatMessage(ChatRole.System, Instructions), new ChatMessage(ChatRole.User, tail)],
-                new ChatOptions { MaxOutputTokens = 1000 },
-                ct);
-            body = string.IsNullOrWhiteSpace(response.Text) ? throw new InvalidOperationException("Empty summary.") : response.Text;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            ActivityExecutionContext.Current.Logger.LogWarning(ex, "Failure summarizer failed; writing raw log tail instead.");
-            body = $"Summarizer unavailable. Last {options.Value.RawLogTailBytes} bytes of the raw log:\n\n```\n{tail}\n```";
-            usedFallback = true;
-        }
+        var (body, usedFallback) = input.ReviewerFeedback is { } feedback
+            ? (feedback, false)
+            : await SummarizeLogAsync(input.RawLogPath, ct);
 
         var content = $"# Last failure: story {input.StoryId}, iteration {input.Iteration}\n\n{body}\n\nRaw log: `{input.RawLogPath}`\n";
         Directory.CreateDirectory(paths.Abs(paths.RalphDirRel));
@@ -54,6 +40,26 @@ public class FailureActivities(IChatClient chatClient, IOptions<OrchestratorOpti
         await Git.RunAsync(paths.Worktree, ct, "add", "--", paths.LastFailureRel);
 
         return new SummarizeFailureResult(paths.Abs(paths.LastFailureRel), usedFallback);
+    }
+
+    private async Task<(string Body, bool UsedFallback)> SummarizeLogAsync(string rawLogPath, CancellationToken ct)
+    {
+        var tail = ReadTail(rawLogPath, options.Value.RawLogTailBytes);
+        try
+        {
+            var response = await chatClient.GetResponseAsync(
+                [new ChatMessage(ChatRole.System, Instructions), new ChatMessage(ChatRole.User, tail)],
+                new ChatOptions { MaxOutputTokens = 1000 },
+                ct);
+            return string.IsNullOrWhiteSpace(response.Text)
+                ? throw new InvalidOperationException("Empty summary.")
+                : (response.Text, false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ActivityExecutionContext.Current.Logger.LogWarning(ex, "Failure summarizer failed; writing raw log tail instead.");
+            return ($"Summarizer unavailable. Last {options.Value.RawLogTailBytes} bytes of the raw log:\n\n```\n{tail}\n```", true);
+        }
     }
 
     internal static string ReadTail(string path, int maxBytes)

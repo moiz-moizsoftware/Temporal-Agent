@@ -31,7 +31,8 @@ public record VerifyInput(
     string FeatureId,
     string StoryId,
     int Iteration,
-    IReadOnlyList<string> TestIds);
+    IReadOnlyList<string> TestIds,
+    IReadOnlyList<string> PendingTestIds);
 
 public record VerifyResult(
     bool Passed,
@@ -40,7 +41,8 @@ public record VerifyResult(
     bool FullSuitePassed,
     IReadOnlyList<string> LockedPathViolations,
     string? FailureSignature,
-    string RawLogPath);
+    string RawLogPath,
+    IReadOnlyList<string> NewPackages);
 
 public record CommitStoryInput(string WorktreePath, string FeatureId, string StoryId, int Iteration);
 
@@ -51,6 +53,7 @@ public record SummarizeFailureInput(
     string FeatureId,
     string StoryId,
     int Iteration,
-    string RawLogPath);
+    string RawLogPath,
+    string? ReviewerFeedback = null);
 
 public record SummarizeFailureResult(string SummaryPath, bool UsedFallback);

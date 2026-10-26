@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Anthropic;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -5,6 +6,7 @@ using Orchestrator.Activities;
 using Orchestrator.Activities.Agent;
 using Orchestrator.Contracts;
 using Orchestrator.Workflows;
+using Temporalio.Converters;
 using Temporalio.Extensions.Hosting;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -28,6 +30,11 @@ builder.Services.AddSingleton<IAgentRunner, ClaudeCodeRunner>();
 
 builder.Services
     .AddHostedTemporalWorker(settings.TemporalAddress, settings.Namespace, TaskQueues.Orchestrator, deploymentOptions: null)
+    // camelCase JSON from the CLI (workflow input, signals) binds; the SDK default is case-sensitive PascalCase.
+    .ConfigureOptions(o => o.ClientOptions!.DataConverter = DataConverter.Default with
+    {
+        PayloadConverter = new DefaultPayloadConverter(new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+    })
     .AddWorkflow<FeatureWorkflow>()
     .AddScopedActivities<WorkspaceActivities>()
     .AddScopedActivities<StoryActivities>()
