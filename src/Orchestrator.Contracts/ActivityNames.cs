@@ -10,6 +10,7 @@ public static class ActivityNames
     public const string Verify = nameof(Verify);
     public const string CommitStory = nameof(CommitStory);
     public const string SummarizeFailure = nameof(SummarizeFailure);
+    public const string RecordFeatureOutcome = nameof(RecordFeatureOutcome);
 }
 
 public static class TaskQueues

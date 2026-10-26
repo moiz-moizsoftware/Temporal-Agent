@@ -57,3 +57,11 @@ public record SummarizeFailureInput(
     string? ReviewerFeedback = null);
 
 public record SummarizeFailureResult(string SummaryPath, bool UsedFallback);
+
+public record RecordFeatureOutcomeInput(
+    string FeatureId,
+    FeatureOutcome Outcome,
+    EscalationReason? Reason,
+    int Iterations,
+    int StoriesPassed,
+    int StoriesTotal);

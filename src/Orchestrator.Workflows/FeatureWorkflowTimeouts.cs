@@ -12,6 +12,13 @@ internal static class FeatureWorkflowTimeouts
         RetryPolicy = new RetryPolicy { MaximumAttempts = 3 },
     };
 
+    /// <summary>Best-effort telemetry. One attempt: a lost score is not worth delaying the result.</summary>
+    public static ActivityOptions Telemetry => new()
+    {
+        StartToCloseTimeout = TimeSpan.FromMinutes(1),
+        RetryPolicy = new RetryPolicy { MaximumAttempts = 1 },
+    };
+
     /// <summary>One Claude Code run. Long, so it must heartbeat.</summary>
     public static ActivityOptions RunAgent => new()
     {

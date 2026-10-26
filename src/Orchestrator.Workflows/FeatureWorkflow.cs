@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Orchestrator.Contracts;
+using Temporalio.Exceptions;
 using Temporalio.Workflows;
 
 namespace Orchestrator.Workflows;
@@ -39,7 +40,7 @@ public class FeatureWorkflow
         {
             if (iteration >= input.MaxTotalIterations)
             {
-                return Escalate(EscalationReason.MaxTotalIterations, story.Id);
+                return await FinishAsync(Escalate(EscalationReason.MaxTotalIterations, story.Id), input.FeatureId, iteration);
             }
 
             iteration++;
@@ -93,11 +94,14 @@ public class FeatureWorkflow
 
             if (escalation is { } reason)
             {
-                return Escalate(reason, story.Id);
+                return await FinishAsync(Escalate(reason, story.Id), input.FeatureId, iteration);
             }
         }
 
-        return new FeatureWorkflowResult(FeatureOutcome.Completed, statuses.ToList(), Escalation: null, branchName);
+        return await FinishAsync(
+            new FeatureWorkflowResult(FeatureOutcome.Completed, statuses.ToList(), Escalation: null, branchName),
+            input.FeatureId,
+            iteration);
     }
 
     /// <summary>The iteration waiting for a package decision, or null. Shown by `temporal workflow query`.</summary>
@@ -130,6 +134,34 @@ public class FeatureWorkflow
         PendingPackageApproval = null;
         packageDecision = null;
         return decision.Approved ? null : decision;
+    }
+
+    /// <summary>
+    /// Records the outcome for observability, then returns the result unchanged. Patched so runs started before
+    /// this activity existed replay deterministically. A telemetry failure never fails the workflow.
+    /// </summary>
+    private static async Task<FeatureWorkflowResult> FinishAsync(FeatureWorkflowResult result, string featureId, int iterations)
+    {
+        if (!Workflow.Patched("record-feature-outcome"))
+        {
+            return result;
+        }
+
+        try
+        {
+            await Workflow.ExecuteActivityAsync(
+                ActivityNames.RecordFeatureOutcome,
+                [new RecordFeatureOutcomeInput(
+                    featureId, result.Outcome, result.Escalation?.Reason, iterations,
+                    result.Stories.Count(s => s.Passes), result.Stories.Count)],
+                FeatureWorkflowTimeouts.Telemetry);
+        }
+        catch (ActivityFailureException ex)
+        {
+            Workflow.Logger.LogWarning(ex, "Recording the feature outcome failed; the result is unaffected.");
+        }
+
+        return result;
     }
 
     private FeatureWorkflowResult Escalate(EscalationReason reason, string storyId) =>

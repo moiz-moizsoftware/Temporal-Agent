@@ -22,6 +22,9 @@ public class FeatureWorkflowTests(WorkflowEnvironmentFixture fixture) : IClassFi
         Assert.All(result.Stories, s => Assert.True(s.Passes));
         Assert.Equal(["CommitStory:S1", "CommitStory:S2"], fake.CallsTo(ActivityNames.CommitStory));
         Assert.Empty(fake.CallsTo(ActivityNames.SummarizeFailure));
+        Assert.Equal(
+            new RecordFeatureOutcomeInput("f1", FeatureOutcome.Completed, Reason: null, Iterations: 2, StoriesPassed: 2, StoriesTotal: 2),
+            fake.Outcomes.Single());
     }
 
     [Fact]
@@ -64,6 +67,10 @@ public class FeatureWorkflowTests(WorkflowEnvironmentFixture fixture) : IClassFi
             result.Escalation);
         Assert.Equal(3, fake.CallsTo(ActivityNames.RunAgent).Count());
         Assert.Empty(fake.CallsTo(ActivityNames.CommitStory));
+        Assert.Equal(
+            new RecordFeatureOutcomeInput(
+                "f1", FeatureOutcome.Escalated, EscalationReason.MaxAttemptsPerStory, Iterations: 3, StoriesPassed: 0, StoriesTotal: 1),
+            fake.Outcomes.Single());
     }
 
     [Fact]
@@ -109,6 +116,7 @@ public class FeatureWorkflowTests(WorkflowEnvironmentFixture fixture) : IClassFi
             new EscalationInfo(EscalationReason.MaxTotalIterations, "S1", 2, "last_failure_2.md", "raw.log"),
             result.Escalation);
         Assert.Equal(2, fake.CallsTo(ActivityNames.RunAgent).Count());
+        Assert.Equal(EscalationReason.MaxTotalIterations, fake.Outcomes.Single().Reason);
     }
 
     [Fact]

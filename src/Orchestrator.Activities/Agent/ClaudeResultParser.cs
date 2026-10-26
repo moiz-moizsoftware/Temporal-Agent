@@ -3,7 +3,14 @@ using System.Text.Json;
 namespace Orchestrator.Activities.Agent;
 
 /// <summary>Metrics read from `claude -p --output-format json`. Every field is optional.</summary>
-public sealed record ClaudeRunMetrics(int? Turns, decimal? CostUsd, long? InputTokens, long? OutputTokens, bool? IsError)
+public sealed record ClaudeRunMetrics(
+    int? Turns,
+    decimal? CostUsd,
+    long? InputTokens,
+    long? OutputTokens,
+    bool? IsError,
+    string? ResultText = null,
+    string? Model = null)
 {
     public static readonly ClaudeRunMetrics Empty = new(null, null, null, null, null);
 }
@@ -36,13 +43,29 @@ public static class ClaudeResultParser
                 OutputTokens: usage is { } uo ? Long(uo, "output_tokens") : null,
                 IsError: root.TryGetProperty("is_error", out var err) && err.ValueKind is JsonValueKind.True or JsonValueKind.False
                     ? err.GetBoolean()
-                    : null);
+                    : null,
+                ResultText: root.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.String
+                    ? result.GetString()
+                    : null,
+                Model: MainModel(root));
         }
         catch (JsonException)
         {
             return ClaudeRunMetrics.Empty;
         }
     }
+
+    /// <summary>The costliest model in "modelUsage"; the CLI also bills small helper calls to other models.</summary>
+    private static string? MainModel(JsonElement root) =>
+        root.TryGetProperty("modelUsage", out var models) && models.ValueKind == JsonValueKind.Object
+            ? models.EnumerateObject()
+                .OrderByDescending(m => m.Value.ValueKind == JsonValueKind.Object
+                    && m.Value.TryGetProperty("costUSD", out var c) && c.ValueKind == JsonValueKind.Number
+                        ? c.GetDecimal()
+                        : 0m)
+                .Select(m => m.Name)
+                .FirstOrDefault()
+            : null;
 
     private static long? Long(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var l)

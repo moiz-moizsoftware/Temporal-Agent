@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Orchestrator.Activities.Agent;
 
 namespace Orchestrator.Activities.Tests;
@@ -51,7 +52,49 @@ public class ClaudeCodeTests
     {
         var metrics = ClaudeResultParser.Parse(SampleResult);
 
-        Assert.Equal(new ClaudeRunMetrics(Turns: 1, CostUsd: 0.1556355m, InputTokens: 18247, OutputTokens: 4, IsError: false), metrics);
+        Assert.Equal(
+            new ClaudeRunMetrics(Turns: 1, CostUsd: 0.1556355m, InputTokens: 18247, OutputTokens: 4, IsError: false, ResultText: "ok"),
+            metrics);
+    }
+
+    [Fact]
+    public void Parser_PicksCostliestModel()
+    {
+        var metrics = ClaudeResultParser.Parse(
+            """{"modelUsage":{"claude-haiku-4-5":{"costUSD":0.01},"claude-sonnet-4-5":{"costUSD":0.9}}}""");
+
+        Assert.Equal("claude-sonnet-4-5", metrics.Model);
+    }
+
+    [Fact]
+    public void Generation_CarriesUsageCostAndContent()
+    {
+        using var span = new Activity("claude-code").Start();
+        var metrics = new ClaudeRunMetrics(3, 0.25m, 1000, 200, IsError: false, ResultText: "done", Model: "claude-sonnet-4-5");
+
+        ClaudeCodeRunner.RecordGeneration(span, metrics, exitCode: 0, "Follow PROMPT.md", "sonnet", captureContent: true);
+
+        Assert.Equal("generation", span.GetTagItem("langfuse.observation.type"));
+        Assert.Equal("claude-sonnet-4-5", span.GetTagItem("gen_ai.request.model"));
+        Assert.Equal(1000L, span.GetTagItem("gen_ai.usage.input_tokens"));
+        Assert.Equal(200L, span.GetTagItem("gen_ai.usage.output_tokens"));
+        Assert.Equal("""{"total":0.25}""", span.GetTagItem("langfuse.observation.cost_details"));
+        Assert.Equal("done", span.GetTagItem("langfuse.observation.output"));
+        Assert.Equal(ActivityStatusCode.Unset, span.Status);
+    }
+
+    [Fact]
+    public void Generation_OmitsContentWhenDisabledAndFlagsErrors()
+    {
+        using var span = new Activity("claude-code").Start();
+
+        ClaudeCodeRunner.RecordGeneration(
+            span, ClaudeRunMetrics.Empty with { ResultText = "secret" }, exitCode: 1, "Follow PROMPT.md", "sonnet", captureContent: false);
+
+        Assert.Null(span.GetTagItem("langfuse.observation.input"));
+        Assert.Null(span.GetTagItem("langfuse.observation.output"));
+        Assert.Equal("sonnet", span.GetTagItem("gen_ai.request.model"));
+        Assert.Equal(ActivityStatusCode.Error, span.Status);
     }
 
     [Fact]

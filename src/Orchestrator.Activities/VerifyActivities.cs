@@ -1,11 +1,12 @@
 using Orchestrator.Activities.Infrastructure;
+using Orchestrator.Activities.Telemetry;
 using Orchestrator.Activities.Verification;
 using Orchestrator.Contracts;
 using Temporalio.Activities;
 
 namespace Orchestrator.Activities;
 
-public class VerifyActivities
+public class VerifyActivities(ILangfuseScores scores)
 {
     /// <summary>
     /// A story passes only if: no locked file was touched, the build succeeds, every story test exists and
@@ -15,6 +16,7 @@ public class VerifyActivities
     public async Task<VerifyResult> VerifyAsync(VerifyInput input)
     {
         var ct = ActivityExecutionContext.Current.CancellationToken;
+        OrchestratorTelemetry.TagStory(input.FeatureId, input.StoryId, input.Iteration);
         var paths = new RalphPaths(input.WorktreePath, input.FeatureId);
         var log = paths.LogFile(input.StoryId, input.Iteration, "verify.log");
         var trxDir = paths.LogFile(input.StoryId, input.Iteration, "trx");
@@ -44,7 +46,7 @@ public class VerifyActivities
         var fullSuitePassed = buildSucceeded && IsFullSuitePassed(results, input.PendingTestIds, testExit);
         var passed = locked.Count == 0 && buildSucceeded && storyTestsPassed && fullSuitePassed;
 
-        return new VerifyResult(
+        var result = new VerifyResult(
             passed,
             buildSucceeded,
             storyTestsPassed,
@@ -53,6 +55,21 @@ public class VerifyActivities
             passed ? null : FailureSignature.From(locked, buildSucceeded, missing, failed, fullSuitePassed),
             log,
             newPackages);
+        await RecordAsync(input, result, ct);
+        return result;
+    }
+
+    private async Task RecordAsync(VerifyInput input, VerifyResult result, CancellationToken ct)
+    {
+        OrchestratorTelemetry.SetCurrentMetadata("passed", result.Passed);
+        OrchestratorTelemetry.SetCurrentMetadata("buildSucceeded", result.BuildSucceeded);
+        OrchestratorTelemetry.SetCurrentMetadata("storyTestsPassed", result.StoryTestsPassed);
+        OrchestratorTelemetry.SetCurrentMetadata("fullSuitePassed", result.FullSuitePassed);
+        OrchestratorTelemetry.SetCurrentMetadata("lockedPathViolations", result.LockedPathViolations.Count);
+        OrchestratorTelemetry.SetCurrentMetadata("newPackages", string.Join(", ", result.NewPackages));
+        OrchestratorTelemetry.SetCurrentMetadata("failureSignature", result.FailureSignature);
+        await scores.PostAsync(
+            "verify_passed", result.Passed ? 1 : 0, ScoreDataType.Boolean, $"{input.StoryId}-{input.Iteration}", onSpan: true, ct);
     }
 
     /// <summary>Failed tests, ignoring those of stories not reached yet.</summary>

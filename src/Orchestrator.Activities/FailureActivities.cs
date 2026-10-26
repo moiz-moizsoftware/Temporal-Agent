@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orchestrator.Activities.Infrastructure;
+using Orchestrator.Activities.Telemetry;
 using Orchestrator.Contracts;
 using Temporalio.Activities;
 
@@ -29,6 +30,7 @@ public class FailureActivities(IChatClient chatClient, IOptions<OrchestratorOpti
     public async Task<SummarizeFailureResult> SummarizeFailureAsync(SummarizeFailureInput input)
     {
         var ct = ActivityExecutionContext.Current.CancellationToken;
+        OrchestratorTelemetry.TagStory(input.FeatureId, input.StoryId, input.Iteration);
         var paths = new RalphPaths(input.WorktreePath, input.FeatureId);
         var (body, usedFallback) = input.ReviewerFeedback is { } feedback
             ? (feedback, false)
@@ -38,6 +40,8 @@ public class FailureActivities(IChatClient chatClient, IOptions<OrchestratorOpti
         Directory.CreateDirectory(paths.Abs(paths.RalphDirRel));
         await File.WriteAllTextAsync(paths.Abs(paths.LastFailureRel), content, ct);
         await Git.RunAsync(paths.Worktree, ct, "add", "--", paths.LastFailureRel);
+        OrchestratorTelemetry.SetCurrentMetadata("usedFallback", usedFallback);
+        OrchestratorTelemetry.SetCurrentMetadata("hasReviewerFeedback", input.ReviewerFeedback is not null);
 
         return new SummarizeFailureResult(paths.Abs(paths.LastFailureRel), usedFallback);
     }

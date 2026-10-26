@@ -23,6 +23,8 @@ public class FakeActivities
 
     public List<SummarizeFailureInput> SummarizeInputs { get; } = [];
 
+    public List<RecordFeatureOutcomeInput> Outcomes { get; } = [];
+
     public FakeActivities ScriptVerify(string storyId, params VerifyResult[] results)
     {
         verifyScripts[storyId] = new Queue<VerifyResult>(results);
@@ -89,6 +91,13 @@ public class FakeActivities
         Record(ActivityNames.SummarizeFailure, $"{input.StoryId}:{input.Iteration}");
         SummarizeInputs.Add(input);
         return new SummarizeFailureResult($"last_failure_{input.Iteration}.md", UsedFallback: false);
+    }
+
+    [Activity(ActivityNames.RecordFeatureOutcome)]
+    public void RecordFeatureOutcome(RecordFeatureOutcomeInput input)
+    {
+        Record(ActivityNames.RecordFeatureOutcome, input.Outcome.ToString());
+        Outcomes.Add(input);
     }
 
     private void Record(string activity, string detail)

@@ -1,4 +1,5 @@
 using Orchestrator.Activities.Agent;
+using Orchestrator.Activities.Telemetry;
 using Orchestrator.Contracts;
 using Temporalio.Activities;
 
@@ -11,6 +12,9 @@ public class AgentActivities(IAgentRunner runner)
     /// Heartbeats while the CLI runs (see ProcessRunner).
     /// </summary>
     [Activity(ActivityNames.RunAgent)]
-    public Task<RunAgentResult> RunAgentAsync(RunAgentInput input) =>
-        runner.RunAsync(input, ActivityExecutionContext.Current.CancellationToken);
+    public Task<RunAgentResult> RunAgentAsync(RunAgentInput input)
+    {
+        OrchestratorTelemetry.TagStory(input.FeatureId, input.StoryId, input.Iteration);
+        return runner.RunAsync(input, ActivityExecutionContext.Current.CancellationToken);
+    }
 }
