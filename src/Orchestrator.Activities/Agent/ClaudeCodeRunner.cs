@@ -18,7 +18,7 @@ public class ClaudeCodeRunner(IOptions<OrchestratorOptions> options, IOptions<La
         DeleteIfExists(outputPath, stdErrPath); // a retried attempt starts with clean logs
 
         using var span = OrchestratorTelemetry.Source.StartActivity("claude-code");
-        var arguments = ClaudeCodeArguments.Build(options.Value, input.FeatureId);
+        var arguments = ClaudeCodeArguments.Build(options.Value, input.FeatureId, input.Profile);
         var stopwatch = Stopwatch.StartNew();
         var exitCode = await ProcessRunner.RunToFileAsync(
             options.Value.ClaudeCliPath,

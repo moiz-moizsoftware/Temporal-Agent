@@ -1,3 +1,5 @@
+using Orchestrator.Contracts;
+
 namespace Orchestrator.Activities.Infrastructure;
 
 /// <summary>
@@ -12,12 +14,26 @@ internal sealed class RalphPaths(string worktreePath, string featureId)
 
     // Repo-relative paths (forward slashes, as git expects).
     public string SpecDirRel => $"specs/{featureId}";
+    public string SpecRel => $"{SpecDirRel}/spec.md";
     public string StoriesRel => $"{SpecDirRel}/stories.json";
+    public string AcceptanceDirRel => $"{SpecDirRel}/acceptance";
     public string RalphDirRel => $".ralph/{featureId}";
     public string StatusRel => $"{RalphDirRel}/status.json";
     public string LastFailureRel => $"{RalphDirRel}/last_failure.md";
-    public string PromptRel => $"{RalphDirRel}/PROMPT.md";
+    public string PromptRel => PromptRelFor(AgentProfile.Implement);
+    public string StoriesPromptRel => PromptRelFor(AgentProfile.DraftStories);
+    public string TestsPromptRel => PromptRelFor(AgentProfile.DraftTests);
     public string ProgressRel => $"{RalphDirRel}/progress.md";
+
+    public string PromptRelFor(AgentProfile profile) => $"{RalphDirRel}/{PromptFileName(profile)}";
+
+    public static string PromptFileName(AgentProfile profile) => profile switch
+    {
+        AgentProfile.Implement => "PROMPT.md",
+        AgentProfile.DraftStories => "STORIES.prompt.md",
+        AgentProfile.DraftTests => "TESTS.prompt.md",
+        _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, null),
+    };
 
     public string Abs(string relativePath) => Path.Combine(Worktree, relativePath.Replace('/', Path.DirectorySeparatorChar));
 

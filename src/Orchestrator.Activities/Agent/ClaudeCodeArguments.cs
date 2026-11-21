@@ -1,4 +1,6 @@
 using System.Globalization;
+using Orchestrator.Activities.Infrastructure;
+using Orchestrator.Contracts;
 
 namespace Orchestrator.Activities.Agent;
 
@@ -9,15 +11,23 @@ namespace Orchestrator.Activities.Agent;
 /// </summary>
 public static class ClaudeCodeArguments
 {
-    public static IReadOnlyList<string> Build(OrchestratorOptions options, string featureId)
+    public static IReadOnlyList<string> Build(
+        OrchestratorOptions options, string featureId, AgentProfile profile = AgentProfile.Implement)
     {
+        var allowedTools = profile switch
+        {
+            AgentProfile.DraftStories => options.StoryAuthoringAllowedTools,
+            AgentProfile.DraftTests => options.TestAuthoringAllowedTools,
+            _ => options.AllowedTools,
+        };
+
         var args = new List<string>
         {
-            "-p", $"Follow the instructions in .ralph/{featureId}/PROMPT.md",
+            "-p", $"Follow the instructions in .ralph/{featureId}/{RalphPaths.PromptFileName(profile)}",
             "--output-format", "json",
             "--model", options.AgentModel,
             "--permission-mode", "acceptEdits",
-            "--allowedTools", options.AllowedTools,
+            "--allowedTools", allowedTools,
             "--max-budget-usd", options.MaxBudgetUsdPerRun.ToString(CultureInfo.InvariantCulture),
             "--no-session-persistence",
         };

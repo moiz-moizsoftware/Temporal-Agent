@@ -12,14 +12,14 @@ public class WorkspaceActivities(IOptions<OrchestratorOptions> options)
     private const string StoryTrailer = "Ralph-Story";
 
     /// <summary>
-    /// Creates (or reuses) the worktree {WorkRoot}/{workflowId} on branch ralph/{featureId}.
+    /// Creates (or reuses) the worktree {WorkRoot}/{workflowId} on branch ralph/{featureId}, or on the given branch.
     /// Idempotent: a retry finds the existing worktree or branch and never creates a duplicate.
     /// </summary>
     [Activity(ActivityNames.PrepareWorkspace)]
     public async Task<PrepareWorkspaceResult> PrepareWorkspaceAsync(PrepareWorkspaceInput input)
     {
         var ct = ActivityExecutionContext.Current.CancellationToken;
-        var branch = $"ralph/{input.FeatureId}";
+        var branch = input.BranchName ?? $"ralph/{input.FeatureId}";
         var worktree = Path.GetFullPath(Path.Combine(options.Value.WorkRoot, input.WorkflowId));
 
         await Git.RunAsync(input.RepoPath, ct, "worktree", "prune");
@@ -60,7 +60,7 @@ public class WorkspaceActivities(IOptions<OrchestratorOptions> options)
         var paths = new RalphPaths(input.WorktreePath, input.FeatureId);
         var trailerValue = $"{paths.WorkflowId}/{input.StoryId}";
 
-        if (await FindStoryCommitAsync(paths.Worktree, trailerValue, ct) is { } existing)
+        if (await Git.FindCommitWithTrailerAsync(paths.Worktree, $"{StoryTrailer}: {trailerValue}", ct) is { } existing)
         {
             return new CommitStoryResult(existing);
         }
@@ -70,11 +70,7 @@ public class WorkspaceActivities(IOptions<OrchestratorOptions> options)
         var trailers = $"{StoryTrailer}: {trailerValue}\nRalph-Iteration: {input.Iteration}";
 
         await Git.RunAsync(paths.Worktree, ct, "add", "-A");
-        await Git.RunAsync(
-            paths.Worktree, ct,
-            "-c", "user.name=Ralph Orchestrator", "-c", "user.email=ralph-orchestrator@localhost",
-            "commit", "--allow-empty", "-m", subject, "-m", trailers);
-        return new CommitStoryResult(await Git.RunAsync(paths.Worktree, ct, "rev-parse", "HEAD"));
+        return new CommitStoryResult(await Git.CommitAsOrchestratorAsync(paths.Worktree, ct, subject, trailers));
     }
 
     private static async Task<bool> IsRegisteredWorktreeAsync(string repoPath, string worktree, CancellationToken ct)
@@ -85,17 +81,5 @@ public class WorkspaceActivities(IOptions<OrchestratorOptions> options)
             .Select(line => Path.GetFullPath(line["worktree ".Length..].Trim()))
             .Any(path => string.Equals(
                 path, worktree, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
-    }
-
-    private static async Task<string?> FindStoryCommitAsync(string worktree, string trailerValue, CancellationToken ct)
-    {
-        // %x1f separates sha from message, %x1e separates commits.
-        var log = await Git.RunAsync(worktree, ct, "log", "-n", "200", "--format=%H%x1f%B%x1e");
-        var expected = $"{StoryTrailer}: {trailerValue}";
-        return log.Split('\x1e', StringSplitOptions.RemoveEmptyEntries)
-            .Select(entry => entry.Trim().Split('\x1f', 2))
-            .Where(parts => parts.Length == 2 && parts[1].Split('\n').Any(line => line.Trim() == expected))
-            .Select(parts => parts[0])
-            .FirstOrDefault();
     }
 }
