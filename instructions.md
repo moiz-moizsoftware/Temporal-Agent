@@ -11,13 +11,15 @@ Install these and make sure they are on `PATH`. The worker checks for `git`, `do
 | .NET 10 SDK | `dotnet --version` | |
 | git | `git --version` | |
 | Temporal CLI | `temporal --version` | Provides the local dev server. |
-| Claude Code CLI | `claude --version` | Signed in, or `ANTHROPIC_API_KEY` set. Default path is `claude.cmd` on Windows and `claude` elsewhere. |
+| Claude Code CLI | `claude --version` | Signed in (`claude`, then `/login`). The agent runs on that login and its settings, never on API credits. Default path is `claude.cmd` on Windows and `claude` elsewhere. |
 
-You also need an Anthropic API key. The failure summarizer reads it from the environment, and it is never stored in config:
+An Anthropic API key is optional. Only the failure summarizer uses it. It is read from the environment and never stored in config:
 
 ```powershell
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
 ```
+
+The worker removes `ANTHROPIC_API_KEY` from Claude Code's environment. Without the key, or without credits, runs carry on. Failure reports then start with the "please add credits" message, followed by the raw log or the full stack trace.
 
 ## 2. Prepare the target repo
 
@@ -94,7 +96,7 @@ The server listens on `localhost:7233`. The UI is at http://localhost:8233.
 
 ## 5. Build, test and start the worker
 
-From the repo root, in a second terminal with `ANTHROPIC_API_KEY` and `Orchestrator__WorkRoot` set:
+From the repo root, in a second terminal with `Orchestrator__WorkRoot` set (and optionally `ANTHROPIC_API_KEY` for failure summaries):
 
 ```powershell
 dotnet build

@@ -170,6 +170,33 @@ public class FeatureWorkflowTests(WorkflowEnvironmentFixture fixture) : IClassFi
         throw new TimeoutException("The workflow never asked for package approval.");
     }
 
+    [Fact]
+    public async Task UnexpectedActivityFailure_FailsWithExplanationAndKeepsTheCause()
+    {
+        var fake = new FakeActivities(S1) { CommitFailure = "git add -A failed (128): error: unable to index file 'nul'" };
+
+        var ex = await Assert.ThrowsAsync<Temporalio.Exceptions.WorkflowFailedException>(() => RunAsync(fake));
+
+        var failure = Assert.IsType<Temporalio.Exceptions.ApplicationFailureException>(ex.InnerException);
+        Assert.Equal("UnexpectedFailure", failure.ErrorType);
+        Assert.Contains("CommitStory failed and stopped the workflow.", failure.Message);
+        Assert.Contains("Explained: CommitStory", failure.Message);
+        Assert.Contains("unable to index file 'nul'", fake.ExplainInputs.Single().Details);
+        Assert.Contains("unable to index file 'nul'", failure.InnerException!.InnerException!.Message); // original cause kept
+    }
+
+    [Fact]
+    public async Task UnexpectedFailure_WhenExplainingFails_ShowsAddCreditsMessageAndStackTrace()
+    {
+        var fake = new FakeActivities(S1) { CommitFailure = "git add -A failed (128)", ExplainFails = true };
+
+        var ex = await Assert.ThrowsAsync<Temporalio.Exceptions.WorkflowFailedException>(() => RunAsync(fake));
+
+        Assert.Contains(FailureMessages.AddCredits, ex.InnerException!.Message);
+        Assert.Contains("full stack trace", ex.InnerException.Message);
+        Assert.Contains("git add -A failed (128)", ex.InnerException.Message);
+    }
+
     private async Task<FeatureWorkflowResult> RunAsync(
         FakeActivities fake,
         int maxAttemptsPerStory = 3,
