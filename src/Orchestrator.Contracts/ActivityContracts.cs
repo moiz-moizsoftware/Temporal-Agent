@@ -62,6 +62,26 @@ public record SummarizeFailureInput(
 
 public record SummarizeFailureResult(string SummaryPath, bool UsedFallback);
 
+/// <summary>An unexpected activity failure that is about to fail the workflow.</summary>
+/// <param name="FailedStep">The activity type that failed, e.g. CommitStory.</param>
+/// <param name="Details">Every message and stack trace in the failure chain.</param>
+public record ExplainFailureInput(string FeatureId, string FailedStep, string Details);
+
+public record ExplainFailureResult(string Explanation, bool UsedFallback);
+
+/// <summary>User-facing text for when the failure summarizer (the only thing that uses API credits) is unavailable.</summary>
+public static class FailureMessages
+{
+    public const string AddCredits =
+        "A summary of the failure is unavailable. Please add credits to your Anthropic API account (ANTHROPIC_API_KEY) " +
+        "so we can show a summary of the failure.";
+
+    /// <param name="reason">Why the summarizer failed, e.g. "Credit balance is too low".</param>
+    /// <param name="what">What follows instead, e.g. "full stack trace".</param>
+    public static string WithoutSummary(string? reason, string what, string details) =>
+        $"{AddCredits}\nSummarizer error: {reason ?? "unknown"}\nUntil then, here is the {what}:\n\n{details}";
+}
+
 public record RecordFeatureOutcomeInput(
     string FeatureId,
     FeatureOutcome Outcome,

@@ -77,13 +77,15 @@ Install these and make sure they are on `PATH`. The worker checks for `git`, `do
 | .NET 10 SDK | `dotnet --version` | |
 | git | `git --version` | |
 | Temporal CLI | `temporal --version` | Provides the local dev server. |
-| Claude Code CLI | `claude --version` | Signed in, or `ANTHROPIC_API_KEY` set. |
+| Claude Code CLI | `claude --version` | Signed in (`claude`, then `/login`). The worker runs it on that login and your Claude Code settings, never on API credits. |
 
-You also need an Anthropic API key for the failure summarizer. It is read from the environment only:
+Optionally, set an Anthropic API key for the failure summarizer. It is read from the environment only:
 
 ```powershell
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
 ```
+
+API credits are used **only** to summarize failures. The worker removes `ANTHROPIC_API_KEY` from Claude Code's environment, so the agent never bills the API account. A missing key or no credits never blocks a run. The failure report then begins with *"Please add credits to your Anthropic API account… so we can show a summary of the failure"* and shows the raw log or the full stack trace instead.
 
 ### Configure the worker
 
@@ -168,7 +170,7 @@ The server listens on `localhost:7233` and the UI is at http://localhost:8233.
 
 ### 2. Start the worker
 
-In a second terminal, with `ANTHROPIC_API_KEY` set (and the Langfuse keys, if you want traces):
+In a second terminal (optionally with `ANTHROPIC_API_KEY` for failure summaries, and the Langfuse keys if you want traces):
 
 ```powershell
 dotnet run --project src/Orchestrator.Worker

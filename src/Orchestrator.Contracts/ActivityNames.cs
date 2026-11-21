@@ -17,6 +17,7 @@ public static class ActivityNames
     public const string PrepareTestsDraft = nameof(PrepareTestsDraft);
     public const string VerifyTests = nameof(VerifyTests);
     public const string CommitSpec = nameof(CommitSpec);
+    public const string ExplainFailure = nameof(ExplainFailure);
 }
 
 public static class TaskQueues

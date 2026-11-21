@@ -25,6 +25,18 @@ public class SpecToPrWorkflow
     [WorkflowRun]
     public async Task<SpecToPrResult> RunAsync(SpecToPrInput input)
     {
+        try
+        {
+            return await RunStagesAsync(input);
+        }
+        catch (Exception ex) when (UnexpectedFailure.ShouldExplain(ex))
+        {
+            throw await UnexpectedFailure.ExplainAsync(ex, input.FeatureId);
+        }
+    }
+
+    private async Task<SpecToPrResult> RunStagesAsync(SpecToPrInput input)
+    {
         var workspace = await ExecuteAsync<PrepareWorkspaceResult>(
             ActivityNames.PrepareWorkspace,
             new PrepareWorkspaceInput(

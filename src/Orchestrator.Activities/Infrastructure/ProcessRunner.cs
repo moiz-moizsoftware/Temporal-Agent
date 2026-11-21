@@ -27,6 +27,7 @@ internal static class ProcessRunner
     /// <summary>
     /// Runs and streams output to files. With no <paramref name="stdErrPath"/>, stderr is merged into the
     /// stdout file. Appends when the file exists so several commands can share one log.
+    /// <paramref name="removeVariables"/> are removed from the environment the child inherits from the worker.
     /// </summary>
     public static async Task<int> RunToFileAsync(
         string fileName,
@@ -34,7 +35,8 @@ internal static class ProcessRunner
         string workingDirectory,
         string stdOutPath,
         string? stdErrPath,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyCollection<string>? removeVariables = null)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(stdOutPath)!);
         await using var stdOut = new StreamWriter(stdOutPath, append: true) { AutoFlush = true };
@@ -52,6 +54,17 @@ internal static class ProcessRunner
         var command = Command(fileName, args, workingDirectory)
             .WithStandardOutputPipe(PipeTarget.ToDelegate(line => Write(stdOut, line)))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(line => Write(stdErr ?? stdOut, line)));
+        if (removeVariables is { Count: > 0 })
+        {
+            // CliWrap removes a variable whose value is null.
+            command = command.WithEnvironmentVariables(env =>
+            {
+                foreach (var name in removeVariables)
+                {
+                    env.Set(name, null);
+                }
+            });
+        }
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var heartbeat = HeartbeatUntilCancelledAsync(heartbeatCts.Token);

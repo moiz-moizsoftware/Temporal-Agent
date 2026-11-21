@@ -46,23 +46,55 @@ public class FailureActivities(IChatClient chatClient, IOptions<OrchestratorOpti
         return new SummarizeFailureResult(paths.Abs(paths.LastFailureRel), usedFallback);
     }
 
+    /// <summary>
+    /// Explains an unexpected failure that is about to stop the workflow. Never fails: when the summarizer is
+    /// unavailable (no credits, no key, network) it returns the add-credits message plus the full stack trace.
+    /// </summary>
+    [Activity(ActivityNames.ExplainFailure)]
+    public async Task<ExplainFailureResult> ExplainFailureAsync(ExplainFailureInput input)
+    {
+        var ct = ActivityExecutionContext.Current.CancellationToken;
+        OrchestratorTelemetry.SetCurrentMetadata("failedStep", input.FailedStep);
+        var (summary, error) = await TrySummarizeAsync(ExplainInstructions, input.Details, maxOutputTokens: 600, ct);
+        OrchestratorTelemetry.SetCurrentMetadata("usedFallback", summary is null);
+        return summary is null
+            ? new ExplainFailureResult(FailureMessages.WithoutSummary(error, "full stack trace", input.Details), UsedFallback: true)
+            : new ExplainFailureResult($"{summary}\n\nFull stack trace:\n\n{input.Details}", UsedFallback: false);
+    }
+
+    private const string ExplainInstructions =
+        """
+        A workflow step failed unexpectedly and stopped the run. Explain it to the developer who operates the workflow.
+        Plain text, under 150 words: what failed, the likely cause, and what to do before resuming the workflow.
+        Quote error messages and file:line locations exactly. Do not invent details not in the input.
+        """;
+
     private async Task<(string Body, bool UsedFallback)> SummarizeLogAsync(string rawLogPath, CancellationToken ct)
     {
         var tail = ReadTail(rawLogPath, options.Value.RawLogTailBytes);
+        var (summary, error) = await TrySummarizeAsync(Instructions, tail, maxOutputTokens: 1000, ct);
+        return summary is null
+            ? (FailureMessages.WithoutSummary(
+                error, $"raw log (last {options.Value.RawLogTailBytes} bytes)", $"```\n{tail}\n```"), true)
+            : (summary, false);
+    }
+
+    /// <summary>The summary, or null and the reason. Any summarizer error (including no credits) is swallowed.</summary>
+    private async Task<(string? Summary, string? Error)> TrySummarizeAsync(
+        string instructions, string content, int maxOutputTokens, CancellationToken ct)
+    {
         try
         {
             var response = await chatClient.GetResponseAsync(
-                [new ChatMessage(ChatRole.System, Instructions), new ChatMessage(ChatRole.User, tail)],
-                new ChatOptions { MaxOutputTokens = 1000 },
+                [new ChatMessage(ChatRole.System, instructions), new ChatMessage(ChatRole.User, content)],
+                new ChatOptions { MaxOutputTokens = maxOutputTokens },
                 ct);
-            return string.IsNullOrWhiteSpace(response.Text)
-                ? throw new InvalidOperationException("Empty summary.")
-                : (response.Text, false);
+            return string.IsNullOrWhiteSpace(response.Text) ? (null, "the summary was empty") : (response.Text, null);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            ActivityExecutionContext.Current.Logger.LogWarning(ex, "Failure summarizer failed; writing raw log tail instead.");
-            return ($"Summarizer unavailable. Last {options.Value.RawLogTailBytes} bytes of the raw log:\n\n```\n{tail}\n```", true);
+            ActivityExecutionContext.Current.Logger.LogWarning(ex, "Failure summarizer failed; using the raw detail instead.");
+            return (null, ex.Message.Split('\n')[0].Trim());
         }
     }
 

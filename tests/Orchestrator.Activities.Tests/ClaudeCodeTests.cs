@@ -98,6 +98,54 @@ public class ClaudeCodeTests
     }
 
     [Fact]
+    public void ErrorWithoutOutput_FailsTheActivityWithTheCliMessage()
+    {
+        // Real output when the API account has no credit.
+        var metrics = ClaudeResultParser.Parse(
+            """{"type":"result","subtype":"success","is_error":true,"num_turns":1,"result":"Credit balance is too low","total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0}}""");
+
+        var ex = Assert.Throws<Temporalio.Exceptions.ApplicationFailureException>(() => ClaudeCodeRunner.ThrowIfAgentDidNotRun(metrics));
+
+        Assert.Contains("Credit balance is too low", ex.Message);
+        Assert.Equal("AgentUnavailable", ex.ErrorType);
+    }
+
+    [Fact]
+    public void ErrorAfterDoingWork_IsLeftToVerify() =>
+        ClaudeCodeRunner.ThrowIfAgentDidNotRun(new ClaudeRunMetrics(30, 1.2m, 5000, 800, IsError: true, "max turns"));
+
+    [Fact]
+    public void Cli_NeverSeesTheSummarizerApiKey() =>
+        Assert.Contains("ANTHROPIC_API_KEY", ClaudeCodeRunner.HiddenFromCli);
+
+    [Fact]
+    public async Task ProcessRunner_RemovesHiddenVariablesFromChildEnvironment()
+    {
+        var name = $"RALPH_TEST_{Guid.NewGuid():N}";
+        Environment.SetEnvironmentVariable(name, "leaked");
+        var dir = Directory.CreateTempSubdirectory("ralph-env").FullName;
+        try
+        {
+            var (exe, args) = OperatingSystem.IsWindows()
+                ? ("cmd", new[] { "/c", $"echo [%{name}%]" })
+                : ("sh", new[] { "-c", $"echo [${name}]" });
+
+            await Orchestrator.Activities.Infrastructure.ProcessRunner.RunToFileAsync(
+                exe, args, dir, Path.Combine(dir, "inherited.txt"), null, CancellationToken.None);
+            await Orchestrator.Activities.Infrastructure.ProcessRunner.RunToFileAsync(
+                exe, args, dir, Path.Combine(dir, "hidden.txt"), null, CancellationToken.None, [name]);
+
+            Assert.Contains("leaked", File.ReadAllText(Path.Combine(dir, "inherited.txt"))); // the test can see a leak
+            Assert.DoesNotContain("leaked", File.ReadAllText(Path.Combine(dir, "hidden.txt")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(name, null);
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Parser_MissingFieldsAreNull() =>
         Assert.Equal(new ClaudeRunMetrics(2, null, null, null, null), ClaudeResultParser.Parse("""{"num_turns":2}"""));
 

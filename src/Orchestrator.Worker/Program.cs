@@ -37,10 +37,14 @@ EnsureOnPath("git");
 EnsureOnPath("dotnet");
 EnsureOnPath(settings.ClaudeCliPath);
 
-// ANTHROPIC_API_KEY is read from the environment by the Anthropic client; it is never in config files.
+// ANTHROPIC_API_KEY (API credits) is used ONLY by the failure summarizer, never by Claude Code, which runs on the
+// machine's `claude` login. It is read from the environment, never from config files, and is optional: without it
+// (or without credits) failures are reported with the raw log / stack trace instead of a summary.
+var hasApiKey = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ClaudeCodeRunner.ApiKeyVariable));
 builder.Services.AddSingleton<IChatClient>(sp =>
-    new AnthropicClient()
-        .AsIChatClient(sp.GetRequiredService<IOptions<OrchestratorOptions>>().Value.SummarizerModel)
+    (hasApiKey
+        ? new AnthropicClient().AsIChatClient(sp.GetRequiredService<IOptions<OrchestratorOptions>>().Value.SummarizerModel)
+        : new UnavailableChatClient($"{ClaudeCodeRunner.ApiKeyVariable} is not set"))
         .AsBuilder()
         .UseOpenTelemetry(sourceName: OrchestratorTelemetry.SummarizerSourceName, configure: c => c.EnableSensitiveData = langfuse.CaptureContent)
         .Build(sp));

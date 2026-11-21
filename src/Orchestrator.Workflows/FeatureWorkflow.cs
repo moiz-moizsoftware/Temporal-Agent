@@ -22,6 +22,18 @@ public class FeatureWorkflow
     [WorkflowRun]
     public async Task<FeatureWorkflowResult> RunAsync(FeatureWorkflowInput input)
     {
+        try
+        {
+            return await RunLoopAsync(input);
+        }
+        catch (Exception ex) when (UnexpectedFailure.ShouldExplain(ex))
+        {
+            throw await UnexpectedFailure.ExplainAsync(ex, input.FeatureId);
+        }
+    }
+
+    private async Task<FeatureWorkflowResult> RunLoopAsync(FeatureWorkflowInput input)
+    {
         var workspace = await ExecuteAsync<PrepareWorkspaceResult>(
             ActivityNames.PrepareWorkspace,
             new PrepareWorkspaceInput(input.RepoPath, input.BaseCommitSha, input.FeatureId, Workflow.Info.WorkflowId),

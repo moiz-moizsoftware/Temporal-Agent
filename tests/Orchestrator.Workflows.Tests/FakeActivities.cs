@@ -92,11 +92,31 @@ public class FakeActivities
             : new VerifyResult(true, true, true, true, [], null, "raw.log", []);
     }
 
+    /// <summary>When set, CommitStory fails with this message (non-retryable), as an unexpected git failure would.</summary>
+    public string? CommitFailure { get; set; }
+
+    /// <summary>When set, ExplainFailure itself fails, as it would if the worker could not run it.</summary>
+    public bool ExplainFails { get; set; }
+
+    public List<ExplainFailureInput> ExplainInputs { get; } = [];
+
     [Activity(ActivityNames.CommitStory)]
     public CommitStoryResult CommitStory(CommitStoryInput input)
     {
         Record(ActivityNames.CommitStory, input.StoryId);
-        return new CommitStoryResult($"sha-{input.StoryId}");
+        return CommitFailure is { } message
+            ? throw new Temporalio.Exceptions.ApplicationFailureException(message, errorType: "InvalidOperationException", nonRetryable: true)
+            : new CommitStoryResult($"sha-{input.StoryId}");
+    }
+
+    [Activity(ActivityNames.ExplainFailure)]
+    public ExplainFailureResult ExplainFailure(ExplainFailureInput input)
+    {
+        Record(ActivityNames.ExplainFailure, input.FailedStep);
+        ExplainInputs.Add(input);
+        return ExplainFails
+            ? throw new Temporalio.Exceptions.ApplicationFailureException("worker down", nonRetryable: true)
+            : new ExplainFailureResult($"Explained: {input.FailedStep}", UsedFallback: false);
     }
 
     [Activity(ActivityNames.SummarizeFailure)]
