@@ -51,6 +51,34 @@ public sealed class GitActivitiesTests : IDisposable
     }
 
     [Fact]
+    public async Task CommitStory_RemovesStrayNulFileThatGitCannotIndex()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // "nul" is only special on Windows
+        }
+
+        var worktree = await PrepareAsync();
+        File.WriteAllText(Path.Combine(worktree, "Greeter.cs"), "class Greeter {}");
+        var nul = @"\\?\" + Path.Combine(worktree, "nul"); // what `cmd 2>nul` leaves behind in Git Bash
+        File.WriteAllText(nul, "noise");
+
+        await env.RunAsync(() => workspace.CommitStoryAsync(new CommitStoryInput(worktree, TempGitRepo.FeatureId, "S1", 1)));
+
+        Assert.False(File.Exists(nul));
+        Assert.Equal("Greeter.cs", TempGitRepo.Git(worktree, "show", "--name-only", "--format=", "HEAD"));
+    }
+
+    [Theory]
+    [InlineData("nul", true)]
+    [InlineData("src/NUL.txt", true)]
+    [InlineData("com1", true)]
+    [InlineData("null.cs", false)]
+    [InlineData("console.txt", false)]
+    public void ReservedNames_AreRecognised(string path, bool reserved) =>
+        Assert.Equal(reserved, ReservedNameFiles.IsReserved(path));
+
+    [Fact]
     public async Task LoadStories_ReturnsStoryRefs()
     {
         var worktree = await PrepareAsync();

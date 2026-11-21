@@ -69,6 +69,7 @@ public class WorkspaceActivities(IOptions<OrchestratorOptions> options)
         var subject = $"feat({input.FeatureId}): {input.StoryId} {title}".TrimEnd();
         var trailers = $"{StoryTrailer}: {trailerValue}\nRalph-Iteration: {input.Iteration}";
 
+        await ReservedNameFiles.RemoveAsync(paths.Worktree, ct); // a stray `nul` file makes `git add -A` fail
         await Git.RunAsync(paths.Worktree, ct, "add", "-A");
         return new CommitStoryResult(await Git.CommitAsOrchestratorAsync(paths.Worktree, ct, subject, trailers));
     }
