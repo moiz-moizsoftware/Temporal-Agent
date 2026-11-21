@@ -1,6 +1,8 @@
 namespace Orchestrator.Contracts;
 
-public record PrepareWorkspaceInput(string RepoPath, string BaseCommitSha, string FeatureId, string WorkflowId);
+/// <param name="BranchName">Branch to create or reuse; null means ralph/{featureId}.</param>
+public record PrepareWorkspaceInput(
+    string RepoPath, string BaseCommitSha, string FeatureId, string WorkflowId, string? BranchName = null);
 
 public record PrepareWorkspaceResult(string WorktreePath, string BranchName);
 
@@ -15,7 +17,9 @@ public record WriteLoopFilesInput(
     int Iteration,
     IReadOnlyList<StoryStatus> Statuses);
 
-public record RunAgentInput(string WorktreePath, string FeatureId, string StoryId, int Iteration);
+/// <param name="StoryId">The story being implemented, or the draft kind (STORIES, TESTS) when authoring.</param>
+public record RunAgentInput(
+    string WorktreePath, string FeatureId, string StoryId, int Iteration, AgentProfile Profile = AgentProfile.Implement);
 
 public record RunAgentResult(
     int ExitCode,

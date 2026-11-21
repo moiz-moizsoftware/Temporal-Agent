@@ -12,6 +12,17 @@ One spec → one Temporal workflow → Ralph loop over stories → all stories p
 
 **Out of scope for M1 — do not build:** PR creation, LangFuse/tracing, Docker, HTTP API/webhooks, human approval signals, planner, reviewer agent, CI gate, cost budgets, parallel tasks. If a change needs one of these, stop and ask.
 
+## Milestone M2: spec-only input
+`SpecToPrWorkflow` takes only a spec file path (`SpecToPrInput`). It:
+1. Copies the spec into a worktree on `spec/{featureId}`.
+2. Has the agent draft `stories.json`, validated by `ValidateStories`, then waits for the `ApproveStories` signal. A rejection or validation error is fed back into the next draft.
+3. Commits spec + stories.
+4. Has the agent draft failing acceptance tests, checked by `VerifyTests`: only acceptance/solution files changed, the build succeeds, every story test exists and fails, and the other tests pass.
+5. Commits the tests.
+6. Runs `FeatureWorkflow` unchanged as a child (`{workflowId}-impl`) from the tests commit.
+
+The agent runs reuse the `RunAgent` activity with an `AgentProfile` (`Implement | DraftStories | DraftTests`). The profile picks the prompt file and the allowed tools. Tests have no human gate.
+
 ## Decisions (do not change without asking)
 | ADR | Decision |
 |---|---|
@@ -21,6 +32,7 @@ One spec → one Temporal workflow → Ralph loop over stories → all stories p
 | 4 | Ralph loop lives in workflow code. Iteration = `RunAgent` → `Verify` → (`CommitStory` \| `SummarizeFailure`). Failure feedback is an `IChatClient` summary written to `last_failure.md`; raw log kept on disk; fallback to raw-log tail if summarizer fails. |
 | 4b | Story status source of truth = workflow state. `status.json` is an orchestrator-written projection. Agent writes only code and `progress.md`. |
 | 6 | Runtime: `temporal server start-dev` + worker on host. No Docker for M1. |
+| 7 | Spec-only input is a separate parent workflow (`SpecToPrWorkflow`) that calls `FeatureWorkflow` as a child. `FeatureWorkflow` keeps assuming committed spec, stories and tests. Only the spec file path crosses Temporal, never its content. |
 
 ## Solution layout
 ```

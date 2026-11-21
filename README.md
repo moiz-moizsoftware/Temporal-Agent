@@ -4,7 +4,12 @@ A durable .NET orchestrator that takes a written spec and drives [Claude Code](h
 
 ## Overview
 
-You write a spec, break it into stories, and write acceptance tests for each story, all in a **target repo**. The orchestrator then runs a [Ralph loop](https://ghuntley.com/ralph/) over those stories:
+There are two ways to start:
+
+- **From a spec only** (`SpecToPrWorkflow`): you give it a spec file. The agent drafts the stories, you approve them, the agent writes failing acceptance tests, and the orchestrator commits both and runs the loop below. See [Starting from a spec only](#starting-from-a-spec-only).
+- **From a prepared repo** (`FeatureWorkflow`): you write the spec, stories and acceptance tests yourself, in a **target repo**.
+
+Either way, the orchestrator then runs a [Ralph loop](https://ghuntley.com/ralph/) over those stories:
 
 1. Pick the highest-priority story that doesn't pass yet.
 2. Run Claude Code once, headless, with a fresh context and a prompt for that story.
@@ -103,7 +108,9 @@ Settings are in [src/Orchestrator.Worker/appsettings.json](src/Orchestrator.Work
 | `AgentModel` | `sonnet` | Model Claude Code uses. |
 | `MaxBudgetUsdPerRun` | `2.0` | Spending cap for one agent run. |
 | `MaxTurns` | `50` | Turn cap for one agent run. |
-| `AllowedTools` | Read, Edit, Write, Glob, Grep, `dotnet build/test/add package` | Tools the agent may use. |
+| `AllowedTools` | Read, Edit, Write, Glob, Grep, `dotnet build/test/add package` | Tools the agent may use while implementing a story. |
+| `StoryAuthoringAllowedTools` | Read, Write, Glob, Grep | Tools the agent may use while drafting `stories.json`. |
+| `TestAuthoringAllowedTools` | Read, Edit, Write, Glob, Grep, `dotnet build/test/new/sln/add` | Tools the agent may use while drafting acceptance tests. |
 | `SummarizerModel` | `claude-haiku-5-5` | Model that writes `last_failure.md`. |
 | `RawLogTailBytes` | `16384` | Raw-log tail used when the summarizer is unavailable. |
 
@@ -173,6 +180,43 @@ The worker polls the `orchestrator` task queue. One worker serves every feature 
 
 Write the input to a file. Windows PowerShell 5.1 strips the quotes from inline JSON passed to native programs, so `--input '{...}'` fails there.
 
+There are two workflows. Pick one.
+
+#### Option A: from a spec only (`SpecToPrWorkflow`)
+
+Give it a spec file anywhere on disk. The agent drafts the stories, you approve them, the agent writes the acceptance tests, and then the Ralph loop runs. The target repo needs no `specs/<featureId>/` folder.
+
+```powershell
+$sha = git -C D:\temporal-work rev-parse HEAD
+
+@"
+{"repoPath":"D:\\temporal-work","specFilePath":"D:\\specs\\f3.md","baseCommitSha":"$sha","featureId":"f3"}
+"@ | Set-Content -Encoding ascii spec-f3.json
+
+temporal workflow start `
+  --task-queue orchestrator `
+  --type SpecToPrWorkflow `
+  --workflow-id spec-f3 `
+  --input-file spec-f3.json
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `repoPath` | yes | Absolute path to the local target repo. |
+| `specFilePath` | yes | Absolute path to the spec on the worker's disk. It is copied to `specs/<featureId>/spec.md`. |
+| `baseCommitSha` | yes | Commit to branch from. It does not need `specs/<featureId>/`. |
+| `featureId` | yes | Names `specs/<featureId>/` and the `spec/<featureId>` and `ralph/<featureId>` branches. |
+| `maxStoryDrafts` | no | Default `3`. Stories drafts allowed, counting invalid and rejected ones. |
+| `maxTestDrafts` | no | Default `3`. Acceptance test drafts allowed. |
+| `maxAttemptsPerStory` | no | Default `3`. Passed to `FeatureWorkflow`. |
+| `maxTotalIterations` | no | Default `20`. Passed to `FeatureWorkflow`. |
+
+The run then waits for you to approve the stories. See [Starting from a spec only](#starting-from-a-spec-only) for the approval commands and what each step checks.
+
+#### Option B: from a prepared repo (`FeatureWorkflow`)
+
+The spec, stories and acceptance tests are already committed in the target repo (see [Preparing a target repo](#preparing-a-target-repo)).
+
 ```powershell
 @'
 {"repoPath":"D:\\temporal-work","specPath":"specs/f1/spec.md","baseCommitSha":"<sha>","featureId":"f1"}
@@ -194,7 +238,7 @@ temporal workflow start `
 | `maxAttemptsPerStory` | no | Default `3`. |
 | `maxTotalIterations` | no | Default `20`. |
 
-Use a new workflow id for each run. The id also names the worktree folder.
+For either workflow, use a new workflow id for each run. The id also names the worktree folder.
 
 ### 4. Follow progress
 
@@ -256,6 +300,53 @@ The branch also contains `.ralph/<featureId>/`, the loop's working files. Keep i
   ```
 
   Then start the workflow again, preferably with a new workflow id (for example `feature-f1-r2`).
+
+## Starting from a spec only
+
+`SpecToPrWorkflow` needs only a spec file. Start Temporal and the worker (steps 1 and 2 above), then start it with [Option A of step 3](#option-a-from-a-spec-only-spectoprworkflow).
+
+What happens:
+
+1. **Workspace.** A worktree `{WorkRoot}/spec-f3` on a new branch `spec/f3`, and the spec copied into it.
+2. **Stories.** The agent drafts `specs/f3/stories.json` from the spec. `ValidateStories` checks it: valid JSON, unique ids, a title, acceptance criteria and `Namespace.Class.Method` test ids for every story, and no file changed except `stories.json`. An invalid draft goes back to the agent with the errors.
+3. **Your approval.** A valid draft waits for you, indefinitely:
+
+   ```powershell
+   temporal workflow query --workflow-id spec-f3 --name PendingStoriesApproval   # draft number, path, story list
+   # Read the file at the path it shows, then approve:
+   '{"approved":true}' | Set-Content -Encoding ascii decision.json
+   temporal workflow signal --workflow-id spec-f3 --name ApproveStories --input-file decision.json
+   # or reject. The comment goes to the next draft:
+   '{"approved":false,"comment":"Split S2 into create and cancel"}' | Set-Content -Encoding ascii decision.json
+   temporal workflow signal --workflow-id spec-f3 --name ApproveStories --input-file decision.json
+   ```
+
+   Approved stories are committed with `spec.md` (`docs(f3): add spec and approved stories`).
+4. **Tests.** The agent writes an xUnit project under `specs/f3/acceptance/` and adds it to the solution. `VerifyTests` accepts the draft only if all of these hold:
+   - Only the acceptance folder and solution files changed.
+   - The solution builds.
+   - Every story test id is found and **fails**, because nothing is implemented yet.
+   - Every other test still passes.
+
+   A rejected draft goes back to the agent with a `last_failure.md`. Valid tests are committed (`test(f3): add acceptance tests`). There is no human gate on tests.
+5. **Implementation.** A child `FeatureWorkflow` with id `spec-f3-impl` runs the Ralph loop on `ralph/f3`, branched from the tests commit. Package approvals for this phase go to `spec-f3-impl`.
+
+`temporal workflow query --workflow-id spec-f3 --name Stage` shows where the run is: `DraftingStories`, `AwaitingStoriesApproval`, `DraftingTests`, `Implementing` or `Done`.
+
+The result includes the approved stories, the spec commit, and the child's `FeatureWorkflowResult`. `Escalated` gives a reason:
+
+| Reason | Meaning | `detail` |
+|---|---|---|
+| `StoriesNotApproved` | No draft was approved within `maxStoryDrafts`. | The last feedback. |
+| `TestsInvalid` | No test draft passed `VerifyTests` within `maxTestDrafts`. | Path of the last failure summary. |
+| `ImplementationEscalated` | The child `FeatureWorkflow` escalated. | Its last failure summary. See `feature.escalation`. |
+
+Merge `ralph/f3` as usual. It contains the spec commits too. Neither the `spec/f3` worktree nor the `spec/f3` branch is needed after the run.
+
+Things to know:
+- The target repo's `.gitignore` must ignore `bin/` and `obj/`. Otherwise build output shows up as changes outside the acceptance folder.
+- Acceptance tests must compile before the feature exists, so the prompt asks the agent to test from the outside in (for example over HTTP with `WebApplicationFactory<Program>`), following the style of earlier features.
+- Rerunning a feature needs the same cleanup as before, for both branches: `spec/<featureId>` and `ralph/<featureId>`.
 
 ## Observability (Langfuse)
 

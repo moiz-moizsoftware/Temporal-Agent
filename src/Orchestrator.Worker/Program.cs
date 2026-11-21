@@ -69,12 +69,14 @@ builder.Services
         o.ClientOptions.Interceptors = [new TracingInterceptor()];
     })
     .AddWorkflow<FeatureWorkflow>()
+    .AddWorkflow<SpecToPrWorkflow>()
     .AddScopedActivities<WorkspaceActivities>()
     .AddScopedActivities<StoryActivities>()
     .AddScopedActivities<AgentActivities>()
     .AddScopedActivities<VerifyActivities>()
     .AddScopedActivities<FailureActivities>()
-    .AddScopedActivities<TelemetryActivities>();
+    .AddScopedActivities<TelemetryActivities>()
+    .AddScopedActivities<AuthoringActivities>();
 
 builder.Build().Run();
 

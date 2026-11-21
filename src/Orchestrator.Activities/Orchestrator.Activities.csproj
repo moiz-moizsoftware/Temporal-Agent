@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Templates\PROMPT.template.md" LogicalName="PROMPT.template.md" />
+    <EmbeddedResource Include="Templates\STORIES.template.md" LogicalName="STORIES.template.md" />
+    <EmbeddedResource Include="Templates\TESTS.template.md" LogicalName="TESTS.template.md" />
   </ItemGroup>
 
   <ItemGroup>

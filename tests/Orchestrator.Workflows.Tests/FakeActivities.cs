@@ -17,6 +17,10 @@ public class FakeActivities
 
     public List<string> Calls { get; } = [];
 
+    public List<PrepareWorkspaceInput> WorkspaceInputs { get; } = [];
+
+    public List<RunAgentInput> AgentInputs { get; } = [];
+
     public List<WriteLoopFilesInput> LoopFileWrites { get; } = [];
 
     public List<VerifyInput> VerifyInputs { get; } = [];
@@ -44,7 +48,12 @@ public class FakeActivities
     public PrepareWorkspaceResult PrepareWorkspace(PrepareWorkspaceInput input)
     {
         Record(ActivityNames.PrepareWorkspace, input.FeatureId);
-        return new PrepareWorkspaceResult($"/work/{input.WorkflowId}", $"ralph/{input.FeatureId}");
+        lock (WorkspaceInputs)
+        {
+            WorkspaceInputs.Add(input);
+        }
+
+        return new PrepareWorkspaceResult($"/work/{input.WorkflowId}", input.BranchName ?? $"ralph/{input.FeatureId}");
     }
 
     [Activity(ActivityNames.LoadStories)]
@@ -65,6 +74,11 @@ public class FakeActivities
     public RunAgentResult RunAgent(RunAgentInput input)
     {
         Record(ActivityNames.RunAgent, $"{input.StoryId}:{input.Iteration}");
+        lock (AgentInputs)
+        {
+            AgentInputs.Add(input);
+        }
+
         return new RunAgentResult(0, Turns: 5, CostUsd: 0.1m, InputTokens: 100, OutputTokens: 50, TimeSpan.FromSeconds(30), "agent.json");
     }
 

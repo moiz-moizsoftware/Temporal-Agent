@@ -76,7 +76,9 @@ $env:Orchestrator__WorkRoot = "D:\ralph-work"
 | `AgentModel` | `sonnet` | Model Claude Code uses. |
 | `MaxBudgetUsdPerRun` | `2.0` | Spending cap for one agent run. |
 | `MaxTurns` | `50` | Turn cap for one agent run. |
-| `AllowedTools` | Read, Edit, Write, Glob, Grep, `dotnet build/test/add package` | Tools the agent may use. |
+| `AllowedTools` | Read, Edit, Write, Glob, Grep, `dotnet build/test/add package` | Tools the agent may use while implementing. |
+| `StoryAuthoringAllowedTools` | Read, Write, Glob, Grep | Tools the agent may use while drafting stories. |
+| `TestAuthoringAllowedTools` | Read, Edit, Write, Glob, Grep, `dotnet build/test/new/sln/add` | Tools the agent may use while drafting acceptance tests. |
 | `SummarizerModel` | `claude-haiku-5-5` | Model that writes `last_failure.md`. |
 | `RawLogTailBytes` | `16384` | Size of the raw-log tail used if summarizing fails. |
 
@@ -161,6 +163,21 @@ Reject. The comment is passed to the agent's next attempt:
 ```powershell
 temporal workflow signal --workflow-id feature-f1 --name ApprovePackages --input '{"approved":false,"comment":"Use System.Text.Json instead"}'
 ```
+
+## 8b. Start from a spec only
+
+Instead of preparing stories and tests yourself (step 2), you can start `SpecToPrWorkflow` with just a spec file. The agent drafts `stories.json`, you approve it, the agent writes failing acceptance tests, and then `FeatureWorkflow` runs as a child workflow with id `<workflowId>-impl`.
+
+```powershell
+temporal workflow start --task-queue orchestrator --type SpecToPrWorkflow --workflow-id spec-f3 --input-file spec-f3.json
+# spec-f3.json: {"repoPath":"D:\\temporal-work","specFilePath":"D:\\specs\\f3.md","baseCommitSha":"<sha>","featureId":"f3"}
+
+temporal workflow query --workflow-id spec-f3 --name PendingStoriesApproval
+temporal workflow signal --workflow-id spec-f3 --name ApproveStories --input '{"approved":true}'
+temporal workflow signal --workflow-id spec-f3 --name ApproveStories --input '{"approved":false,"comment":"..."}'
+```
+
+See the README section "Starting from a spec only" for the full flow, checks and escalation reasons.
 
 ## 9. Stop and resume
 
