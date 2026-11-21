@@ -69,6 +69,7 @@ public partial class AuthoringActivities
             errors.Add($"{paths.SpecRel} was edited; it must not change.");
         }
 
+        await ReservedNameFiles.RemoveAsync(paths.Worktree, ct); // `2>nul` debris is not the agent's work
         var others = (await Git.ChangedPathsAsync(paths.Worktree, ct))
             .Where(p => p != paths.SpecRel && p != paths.StoriesRel && !IsRalphPath(p))
             .ToList();
@@ -194,6 +195,7 @@ public partial class AuthoringActivities
             return new CommitSpecResult(existing);
         }
 
+        await ReservedNameFiles.RemoveAsync(paths.Worktree, ct);
         string subject;
         if (input.Stage == SpecCommitStage.Stories)
         {
@@ -211,12 +213,15 @@ public partial class AuthoringActivities
     }
 
     /// <summary>Changed paths a test draft may not touch: everything except the acceptance folder, solution files and .ralph.</summary>
-    internal static async Task<IReadOnlyList<string>> FindTestDraftViolationsAsync(RalphPaths paths, CancellationToken ct) =>
-        (await Git.ChangedPathsAsync(paths.Worktree, ct))
+    internal static async Task<IReadOnlyList<string>> FindTestDraftViolationsAsync(RalphPaths paths, CancellationToken ct)
+    {
+        await ReservedNameFiles.RemoveAsync(paths.Worktree, ct); // `2>nul` debris is not the agent's work
+        return (await Git.ChangedPathsAsync(paths.Worktree, ct))
             .Where(p => !p.StartsWith(paths.AcceptanceDirRel + "/", StringComparison.Ordinal)
                         && !IsSolutionFile(p)
                         && !IsRalphPath(p))
             .ToList();
+    }
 
     internal sealed record TestsEvaluation(
         IReadOnlyList<string> Missing, IReadOnlyList<string> Passing, IReadOnlyList<string> Broken)
